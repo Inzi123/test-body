@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Body Mirror</title>
+    <meta name="description" content="Cargá un modelo 3D y controlalo con tu cuerpo usando la cámara." />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%95%BA%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="stage"></div>
+
+    <button id="panel-toggle" class="icon-button" aria-label="Mostrar u ocultar el panel" title="Panel">☰</button>
+
+    <aside id="panel">
+      <header>
+        <h1>Body Mirror</h1>
+        <p>Cargá un modelo 3D y movelo con tu cuerpo usando la cámara.</p>
+      </header>
+
+      <section>
+        <h2>1 · Modelo 3D</h2>
+        <label class="file-button">
+          <input id="file-input" type="file" multiple
+            accept=".glb,.gltf,.vrm,.fbx,.obj,.mtl,.bin,.png,.jpg,.jpeg,.webp,.tga,.bmp" />
+          Cargar modelo…
+        </label>
+        <p class="hint">GLB, GLTF, VRM, FBX u OBJ. Para OBJ elegí también el <code>.mtl</code> y las texturas (podés seleccionar varios archivos a la vez o arrastrarlos a la ventana). Si el modelo no tiene esqueleto se riggea automáticamente.</p>
+        <div class="row">
+          <button id="mannequin-button" type="button">Maniquí</button>
+          <button id="sample-button" type="button">Ejemplo (Xbot)</button>
+        </div>
+        <div id="model-info" class="info"></div>
+        <details id="bones-details">
+          <summary>Huesos detectados</summary>
+          <ul id="bones-list"></ul>
+        </details>
+        <button id="export-button" type="button" hidden>Descargar modelo riggeado (.glb)</button>
+      </section>
+
+      <section>
+        <h2>2 · Cámara</h2>
+        <div class="row">
+          <button id="camera-button" type="button" class="primary">Iniciar cámara</button>
+        </div>
+        <label class="field">Cámara
+          <select id="camera-select"><option value="">Predeterminada</option></select>
+        </label>
+        <label class="field">Precisión
+          <select id="variant-select">
+            <option value="lite">Rápida (lite)</option>
+            <option value="full" selected>Normal (full)</option>
+            <option value="heavy">Alta (heavy)</option>
+          </select>
+        </label>
+        <label class="check"><input id="mirror-check" type="checkbox" checked /> Modo espejo</label>
+        <button id="calibrate-button" type="button" title="Mirá de frente a la cámara y tocá este botón">Calibrar cabeza (mirá al frente)</button>
+      </section>
+
+      <section>
+        <h2>3 · Seguimiento</h2>
+        <div class="checks">
+          <label class="check"><input data-option="torso" type="checkbox" checked /> Torso</label>
+          <label class="check"><input data-option="head" type="checkbox" checked /> Cabeza</label>
+          <label class="check"><input data-option="arms" type="checkbox" checked /> Brazos</label>
+          <label class="check"><input data-option="hands" type="checkbox" checked /> Manos</label>
+          <label class="check"><input data-option="legs" type="checkbox" checked /> Piernas</label>
+          <label class="check"><input data-option="move" type="checkbox" /> Desplazarse</label>
+        </div>
+        <label class="field">Suavizado
+          <input id="smoothing-range" type="range" min="0" max="1" step="0.05" value="0.45" />
+        </label>
+      </section>
+
+      <section>
+        <h2>4 · Vista</h2>
+        <div class="checks">
+          <label class="check"><input id="preview-check" type="checkbox" checked /> Ver cámara</label>
+          <label class="check"><input id="landmarks-check" type="checkbox" checked /> Ver puntos</label>
+          <label class="check"><input id="skeleton-check" type="checkbox" /> Ver esqueleto</label>
+        </div>
+        <button id="reset-view-button" type="button">Centrar vista</button>
+      </section>
+    </aside>
+
+    <div id="preview" hidden>
+      <video id="video" playsinline muted></video>
+      <canvas id="overlay"></canvas>
+      <span id="fps" class="badge"></span>
+    </div>
+
+    <div id="status" role="status" aria-live="polite"></div>
+    <div id="dropzone" hidden><div>Soltá tu modelo acá</div></div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
