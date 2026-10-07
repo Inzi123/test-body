@@ -13,6 +13,14 @@ const TARGET_HEIGHT = 1.7;
 export async function prepareModel({ object, vrm }, { detect, onStatus } = {}) {
   const container = new THREE.Group();
 
+  let meshes = 0;
+  object.traverse((o) => o.isMesh && meshes++);
+  if (meshes === 0) {
+    throw new Error(
+      'El archivo no tiene malla, sólo el esqueleto. En Blender seleccioná el cuerpo y el armature antes de exportar.',
+    );
+  }
+
   if (!vrm && !hasSkeleton(object)) {
     const rig = await autoRig(object, { detect, onStatus });
     container.add(rig.root);

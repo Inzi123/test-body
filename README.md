@@ -78,12 +78,18 @@ brazos separados del cuerpo.
 
 ### Exportar un modelo riggeado desde Blender
 
-1. Seleccioná el personaje **y** su esqueleto (armature).
+1. Seleccioná el cuerpo **y** su esqueleto (armature): si sólo seleccionás el armature, el
+   archivo sale sin malla. Incluí también ojos, dientes, pelo y ropa si los querés.
 2. *Archivo → Exportar → glTF 2.0 (.glb/.gltf)*.
-3. En las opciones: formato **glTF Binary (.glb)**, *Incluir → Objetos seleccionados*, y en
-   *Datos → Armature* dejá activado **Skinning** (si querés que el archivo pese menos, desactivá
-   *Shape Keys*). Si el modelo tiene modificadores, activá *Aplicar modificadores*.
+3. En las opciones: formato **glTF Binary (.glb)** (así las texturas van dentro del archivo),
+   *Incluir → Objetos seleccionados*, y en *Datos → Armature* dejá activado **Skinning**.
+   Si el modelo tiene modificadores, activá *Aplicar modificadores*.
 4. Cargá el `.glb` en la app. En *Huesos detectados* deberías ver todos con ✓.
+
+**Texturas:** glTF sólo exporta las imágenes conectadas directamente al *Principled BSDF*
+(Base Color, Normal, Roughness…). Los materiales procedurales o con grupos de nodos, como la
+piel de Human Generator, hay que **hornearlos (bake)** a imágenes antes de exportar; si no, el
+modelo se ve con un color liso.
 
 Los esqueletos de Human Generator y Rigify usan nombres como `spine.006` (cabeza) o
 `upper_arm.L`; la app los reconoce. Si en *Huesos detectados* aparece algún ✗, ese hueso no

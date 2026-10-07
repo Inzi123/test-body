@@ -5,7 +5,7 @@ import basicSsl from '@vitejs/plugin-basic-ssl';
 // desde el celular u otra computadora (los navegadores sólo permiten usar la
 // cámara en HTTPS o en localhost). `npm run dev:local` usa HTTP sólo en esta PC.
 export default defineConfig(({ mode }) => {
-  const localOnly = mode === 'local';
+  const localOnly = mode === 'http';
   return {
     base: './',
     plugins: localOnly ? [] : [basicSsl({ name: 'body-mirror' })],
