@@ -16,6 +16,18 @@ function getFileset() {
 }
 
 export async function createPoseLandmarker(variant = 'full', runningMode = 'VIDEO') {
+  try {
+    return await createPoseLandmarkerUnchecked(variant, runningMode);
+  } catch (err) {
+    // Los fallos de carga de scripts llegan como un Event sin mensaje.
+    if (err instanceof Error && err.message) throw err;
+    throw new Error(
+      'No se pudo cargar el detector de pose. Revisá que la ventana de "npm run dev" siga abierta, que haya internet, y recargá la página (F5).',
+    );
+  }
+}
+
+async function createPoseLandmarkerUnchecked(variant, runningMode) {
   const fileset = await getFileset();
   const options = (delegate) => ({
     baseOptions: { modelAssetPath: MODEL_URLS[variant], delegate },
