@@ -16,16 +16,36 @@ npm install
 npm run dev
 ```
 
-Abrí `http://localhost:5173` y:
+La terminal muestra dos direcciones:
+
+```
+➜  Local:   https://localhost:5173/
+➜  Network: https://192.168.x.x:5173/
+```
+
+- **En esta PC:** abrí la dirección *Local*.
+- **Desde el celular, una tablet u otra PC de la misma red Wi-Fi:** abrí la dirección *Network*.
+
+La app se sirve por HTTPS porque los navegadores sólo dejan usar la cámara con HTTPS (o en
+`localhost`). El certificado es autofirmado, así que la primera vez el navegador muestra una
+advertencia: tocá *Configuración avanzada → Continuar al sitio* (Chrome) o *Mostrar detalles →
+visitar este sitio web* (Safari). En Windows, si el firewall pregunta si Node.js puede usar la
+red, permitilo en **redes privadas**.
+
+Otros comandos:
+
+| Comando | Para qué |
+| --- | --- |
+| `npm run dev` | Desarrollo, HTTPS, accesible en la red local (puerto 5173). |
+| `npm run start` | Compila la versión optimizada y la sirve por HTTPS en la red local (puerto 4173). Más fluida en el celular. |
+| `npm run dev:local` | Sólo en esta PC, por HTTP y sin advertencia de certificado. |
+
+Una vez abierta:
 
 1. **Cargá un modelo** con el botón *Cargar modelo…* o arrastrándolo a la ventana.
    Si no cargás nada se usa un maniquí articulado.
 2. Tocá **Iniciar cámara** y aceptá el permiso.
 3. Alejate hasta que la cámara vea tu cuerpo (idealmente entero, a 2–3 m y con buena luz).
-
-Para usarla desde el celular u otro equipo de la red: `npm run dev:https` y abrí la URL
-`https://<ip>:5173` que muestra la terminal (los navegadores sólo dan acceso a la cámara
-por HTTPS o en `localhost`; el certificado es autofirmado, aceptá la advertencia).
 
 ## Modelos soportados
 
@@ -37,7 +57,8 @@ por HTTPS o en `localhost`; el certificado es autofirmado, aceptá la advertenci
 | `.obj` | Elegí el `.obj` **junto con** el `.mtl` y las texturas. |
 
 **Modelos con esqueleto:** los huesos se reconocen por nombre (Mixamo, VRM, Unreal, 3ds Max
-Biped, Character Creator, Rigify/Blender y nombres genéricos tipo `UpperArm_L`, `hand.R`…).
+Biped, Character Creator, Rigify y Human Generator de Blender, y nombres genéricos tipo
+`UpperArm_L`, `hand.R`…).
 En *Huesos detectados* podés ver qué encontró. Funciona con cualquier pose de reposo
 (T-pose, A-pose…), y el modelo se orienta y escala solo.
 
@@ -54,6 +75,19 @@ En *Huesos detectados* podés ver qué encontró. Funciona con cualquier pose de
 
 El auto-rig espera una figura humana parada, de frente o de espaldas, en pose T, A o con los
 brazos separados del cuerpo.
+
+### Exportar un modelo riggeado desde Blender
+
+1. Seleccioná el personaje **y** su esqueleto (armature).
+2. *Archivo → Exportar → glTF 2.0 (.glb/.gltf)*.
+3. En las opciones: formato **glTF Binary (.glb)**, *Incluir → Objetos seleccionados*, y en
+   *Datos → Armature* dejá activado **Skinning** (si querés que el archivo pese menos, desactivá
+   *Shape Keys*). Si el modelo tiene modificadores, activá *Aplicar modificadores*.
+4. Cargá el `.glb` en la app. En *Huesos detectados* deberías ver todos con ✓.
+
+Los esqueletos de Human Generator y Rigify usan nombres como `spine.006` (cabeza) o
+`upper_arm.L`; la app los reconoce. Si en *Huesos detectados* aparece algún ✗, ese hueso no
+se va a mover: revisá cómo se llama en Blender.
 
 ## Controles
 

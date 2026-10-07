@@ -89,10 +89,22 @@ export function mapHumanoidByName(root) {
     if (!base) continue;
     if (!side) {
       for (const [role, aliases] of Object.entries(CENTER_ALIASES)) if (aliases.includes(base)) pick(role, obj);
+      // Rigify / Human Generator: spine = cadera, spine.004 = cuello, spine.006 = cabeza.
+      if (base === 'spine') pick('rigifyHips', obj);
+      if (base === 'spine004') pick('rigifyNeck', obj);
+      if (base === 'spine006') pick('rigifyHead', obj);
     } else {
       for (const [role, aliases] of Object.entries(SIDED_ALIASES)) if (aliases.includes(base)) pick(side + role, obj);
     }
   }
+  if (bones.rigifyHead && !bones.head) {
+    bones.head = bones.rigifyHead;
+    bones.neck ??= bones.rigifyNeck;
+    bones.hips ??= bones.rigifyHips;
+  }
+  delete bones.rigifyHips;
+  delete bones.rigifyNeck;
+  delete bones.rigifyHead;
   return finalizeBoneMap(bones);
 }
 
@@ -123,7 +135,11 @@ export function finalizeBoneMap(bones) {
       }
     }
   }
-  if (!bones.hips && bones.leftUpperLeg) bones.hips = bones.leftUpperLeg.parent;
+  if (!bones.hips && bones.leftUpperLeg) {
+    // Sin hueso "hips": el ancestro común de ambas piernas.
+    bones.hips = bones.leftUpperLeg.parent;
+    while (bones.hips && bones.rightUpperLeg && !isAncestor(bones.hips, bones.rightUpperLeg)) bones.hips = bones.hips.parent;
+  }
   if (bones.head && bones.neck && !isAncestor(bones.neck, bones.head)) bones.neck = undefined;
 
   // Columna: todos los huesos entre la cadera y el cuello (o la cabeza).
