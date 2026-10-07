@@ -150,7 +150,10 @@ async function busy(text, task) {
     return await task((msg) => setStatus(msg, { sticky: true }));
   } catch (err) {
     console.error(err);
-    setStatus(err?.message || String(err), { error: true });
+    const message = err instanceof Error && err.message
+      ? err.message
+      : 'No se pudo cargar un archivo necesario. Revisá que la ventana de "npm run dev" siga abierta y recargá la página (F5).';
+    setStatus(message, { error: true });
     return undefined;
   } finally {
     document.body.style.cursor = '';

@@ -1,7 +1,12 @@
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
 
-// Los .wasm se copian desde node_modules a public/ (ver scripts/copy-mediapipe-wasm.mjs).
-const WASM_PATH = new URL('mediapipe/wasm', document.baseURI).href.replace(/\/$/, '');
+// Los .wasm se sirven desde public/ (ver scripts/copy-mediapipe-wasm.mjs). Si no se
+// pueden cargar desde ahí, se usa la misma versión publicada en un CDN.
+const MEDIAPIPE_VERSION = '0.10.21'; // igual a la de package.json
+const WASM_SOURCES = [
+  new URL('mediapipe/wasm', document.baseURI).href.replace(/\/$/, ''),
+  `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`,
+];
 
 export const MODEL_URLS = {
   lite: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task',
@@ -9,26 +14,30 @@ export const MODEL_URLS = {
   heavy: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/latest/pose_landmarker_heavy.task',
 };
 
-let filesetPromise = null;
-function getFileset() {
-  filesetPromise ??= FilesetResolver.forVisionTasks(WASM_PATH);
-  return filesetPromise;
-}
+const LOAD_ERROR =
+  'No se pudo cargar el detector de pose. Revisá que la ventana de "npm run dev" siga abierta y que haya conexión a internet, y recargá la página (F5).';
+
+let wasmSource = 0; // índice de la fuente que funcionó
 
 export async function createPoseLandmarker(variant = 'full', runningMode = 'VIDEO') {
-  try {
-    return await createPoseLandmarkerUnchecked(variant, runningMode);
-  } catch (err) {
-    // Los fallos de carga de scripts llegan como un Event sin mensaje.
-    if (err instanceof Error && err.message) throw err;
-    throw new Error(
-      'No se pudo cargar el detector de pose. Revisá que la ventana de "npm run dev" siga abierta, que haya internet, y recargá la página (F5).',
-    );
+  let lastError = null;
+  for (let i = wasmSource; i < WASM_SOURCES.length; i++) {
+    try {
+      const landmarker = await createPoseLandmarkerFrom(WASM_SOURCES[i], variant, runningMode);
+      wasmSource = i;
+      return landmarker;
+    } catch (err) {
+      console.warn(`MediaPipe: no se pudo cargar desde ${WASM_SOURCES[i]}`, err);
+      lastError = err;
+    }
   }
+  // Los fallos de carga de scripts llegan como un Event sin mensaje.
+  const message = lastError instanceof Error ? lastError.message : '';
+  throw new Error(message && !/fetch|load/i.test(message) ? message : LOAD_ERROR);
 }
 
-async function createPoseLandmarkerUnchecked(variant, runningMode) {
-  const fileset = await getFileset();
+async function createPoseLandmarkerFrom(wasmPath, variant, runningMode) {
+  const fileset = await FilesetResolver.forVisionTasks(wasmPath);
   const options = (delegate) => ({
     baseOptions: { modelAssetPath: MODEL_URLS[variant], delegate },
     runningMode,
