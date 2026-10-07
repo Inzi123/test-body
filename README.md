@@ -110,6 +110,13 @@ se va a mover: revisá cómo se llama en Blender.
 - **Precisión**: *lite* es más rápido, *heavy* más preciso (descarga ~30 MB).
 - **Calibrar cabeza**: mirá de frente a la cámara y tocalo si el avatar queda mirando
   levemente hacia arriba o abajo.
+- **Manos**: usa además el detector de manos de MediaPipe (21 puntos por mano) para girar las
+  muñecas y mover los **dedos** (si el modelo tiene huesos de dedos: Mixamo, VRM, Rigify/Human
+  Generator, Unreal…). Funciona mejor con las manos a menos de ~2 m de la cámara.
+- **Manos tapadas**: si una mano pasa por detrás del cuerpo, el brazo sigue la posición
+  estimada en vez de soltarse. Como con una sola cámara no se sabe si está delante o detrás,
+  la app usa una pista: si el detector de manos la venía viendo, la pierde y la muñeca queda
+  sobre el torso, la ubica detrás.
 - **Seguimiento**: activá/desactivá torso, cabeza, brazos, manos, piernas y *Desplazarse*
   (el avatar se mueve de costado cuando vos te movés). Las partes que la cámara no ve vuelven
   solas a una pose relajada; las piernas además mantienen los pies apoyados en el piso.
@@ -152,5 +159,8 @@ servirse por HTTPS para poder usar la cámara).
 
 - Con una sola cámara la profundidad (hacia adelante/atrás) es estimada: los movimientos
   hacia la cámara son menos precisos que los laterales.
-- No se siguen los dedos ni las expresiones de la cara; la mano se orienta como un bloque.
+- No se siguen las expresiones de la cara. Los dedos se mueven sólo si el modelo tiene huesos
+  de dedos (el auto-rig no los crea).
+- Las manos detrás del cuerpo son una estimación: si las juntás delante de la panza y el
+  detector de manos no las reconoce, puede ubicarlas detrás.
 - El botón *Ejemplo (Xbot)* descarga un modelo de `threejs.org`, necesita conexión.

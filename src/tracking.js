@@ -1,4 +1,4 @@
-import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
+import { FilesetResolver, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
 
 // Los .wasm se sirven desde public/ (ver scripts/copy-mediapipe-wasm.mjs). Si no se
 // pueden cargar desde ahí, se usa la misma versión publicada en un CDN.
@@ -13,19 +13,30 @@ export const MODEL_URLS = {
   full: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task',
   heavy: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/latest/pose_landmarker_heavy.task',
 };
+const HAND_MODEL_URL =
+  'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task';
 
 const LOAD_ERROR =
   'No se pudo cargar el detector de pose. Revisá que la ventana de "npm run dev" siga abierta y que haya conexión a internet, y recargá la página (F5).';
 
 let wasmSource = 0; // índice de la fuente que funcionó
 
-export async function createPoseLandmarker(variant = 'full', runningMode = 'VIDEO') {
+/** Crea una tarea de MediaPipe probando cada fuente de WASM y GPU → CPU. */
+async function createTask(TaskClass, modelUrl, taskOptions) {
   let lastError = null;
   for (let i = wasmSource; i < WASM_SOURCES.length; i++) {
     try {
-      const landmarker = await createPoseLandmarkerFrom(WASM_SOURCES[i], variant, runningMode);
+      const fileset = await FilesetResolver.forVisionTasks(WASM_SOURCES[i]);
+      const options = (delegate) => ({ baseOptions: { modelAssetPath: modelUrl, delegate }, ...taskOptions });
+      let task;
+      try {
+        task = await TaskClass.createFromOptions(fileset, options('GPU'));
+      } catch (err) {
+        console.warn('MediaPipe: GPU no disponible, uso CPU.', err);
+        task = await TaskClass.createFromOptions(fileset, options('CPU'));
+      }
       wasmSource = i;
-      return landmarker;
+      return task;
     } catch (err) {
       console.warn(`MediaPipe: no se pudo cargar desde ${WASM_SOURCES[i]}`, err);
       lastError = err;
@@ -36,22 +47,24 @@ export async function createPoseLandmarker(variant = 'full', runningMode = 'VIDE
   throw new Error(message && !/fetch|load/i.test(message) ? message : LOAD_ERROR);
 }
 
-async function createPoseLandmarkerFrom(wasmPath, variant, runningMode) {
-  const fileset = await FilesetResolver.forVisionTasks(wasmPath);
-  const options = (delegate) => ({
-    baseOptions: { modelAssetPath: MODEL_URLS[variant], delegate },
+export function createPoseLandmarker(variant = 'full', runningMode = 'VIDEO') {
+  return createTask(PoseLandmarker, MODEL_URLS[variant], {
     runningMode,
     numPoses: 1,
     minPoseDetectionConfidence: 0.5,
     minPosePresenceConfidence: 0.5,
     minTrackingConfidence: 0.5,
   });
-  try {
-    return await PoseLandmarker.createFromOptions(fileset, options('GPU'));
-  } catch (err) {
-    console.warn('MediaPipe: GPU no disponible, uso CPU.', err);
-    return PoseLandmarker.createFromOptions(fileset, options('CPU'));
-  }
+}
+
+export function createHandLandmarker() {
+  return createTask(HandLandmarker, HAND_MODEL_URL, {
+    runningMode: 'VIDEO',
+    numHands: 2,
+    minHandDetectionConfidence: 0.5,
+    minHandPresenceConfidence: 0.5,
+    minTrackingConfidence: 0.5,
+  });
 }
 
 /** Detector de imágenes fijas (para el auto-rig). Se crea una sola vez. */
@@ -71,6 +84,8 @@ export class CameraTracker {
     this.video = video;
     this.stream = null;
     this.landmarker = null;
+    this.handLandmarker = null;
+    this.handsWanted = false;
     this.variant = null;
     this.lastVideoTime = -1;
     this.lastTimestamp = 0;
@@ -125,7 +140,16 @@ export class CameraTracker {
     this.video.srcObject = null;
   }
 
-  /** Devuelve un resultado nuevo cuando la cámara entregó un cuadro nuevo; si no, null. */
+  /** Activa el detector de manos (dedos y muñecas). Se carga la primera vez. */
+  async setHands(enabled) {
+    this.handsWanted = enabled;
+    if (enabled && !this.handLandmarker) this.handLandmarker = await createHandLandmarker();
+  }
+
+  /**
+   * Cuando la cámara entregó un cuadro nuevo devuelve { pose, hands }
+   * (hands es null si el detector de manos está apagado); si no, null.
+   */
   detect() {
     const v = this.video;
     if (!this.stream || !this.landmarker || v.readyState < 2 || v.videoWidth === 0) return null;
@@ -134,7 +158,9 @@ export class CameraTracker {
     // Los timestamps tienen que ser estrictamente crecientes.
     const now = Math.max(performance.now(), this.lastTimestamp + 1);
     this.lastTimestamp = now;
-    return this.landmarker.detectForVideo(v, now);
+    const pose = this.landmarker.detectForVideo(v, now);
+    const hands = this.handsWanted && this.handLandmarker ? this.handLandmarker.detectForVideo(v, now) : null;
+    return { pose, hands };
   }
 
   static async listCameras() {

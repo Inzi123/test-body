@@ -3,6 +3,15 @@ import * as THREE from 'three';
 // Huesos que usa el retargeting (nombres estilo VRM).
 export const SIDES = ['left', 'right'];
 export const LIMB_BONES = ['Shoulder', 'UpperArm', 'LowerArm', 'Hand', 'UpperLeg', 'LowerLeg', 'Foot', 'Toes'];
+export const FINGERS = ['thumb', 'index', 'middle', 'ring', 'pinky'];
+const FINGER_PATTERNS = {
+  thumb: /thumb|pollex/,
+  index: /index|pointer/,
+  middle: /middle/,
+  ring: /ring/,
+  pinky: /pinky|pinkie|little|small/,
+};
+
 export const REPORT_BONES = [
   'hips', 'spine', 'neck', 'head',
   ...SIDES.flatMap((s) => LIMB_BONES.map((b) => s + b)),
@@ -111,9 +120,54 @@ export function mapHumanoidByName(root) {
 /** Usa el mapeo humanoide oficial de un VRM. */
 export function mapHumanoidFromVRM(vrm) {
   const get = (n) => vrm.humanoid.getRawBoneNode(n) ?? undefined;
-  const bones = { hips: get('hips'), neck: get('neck'), head: get('head') };
-  for (const side of SIDES) for (const role of LIMB_BONES) bones[side + role] = get(side + role);
+  const bones = { hips: get('hips'), neck: get('neck'), head: get('head'), fingers: {} };
+  for (const side of SIDES) {
+    for (const role of LIMB_BONES) bones[side + role] = get(side + role);
+    bones.fingers[side] = {};
+    for (const finger of FINGERS) {
+      const vrmFinger = finger === 'pinky' ? 'Little' : finger[0].toUpperCase() + finger.slice(1);
+      const name = side + vrmFinger;
+      const segments = finger === 'thumb' ? ['Metacarpal', 'Proximal', 'Distal'] : ['Proximal', 'Intermediate', 'Distal'];
+      let chain = segments.map((seg) => get(name + seg)).filter(Boolean);
+      if (finger === 'thumb' && chain.length < 3) {
+        chain = ['Proximal', 'Intermediate', 'Distal'].map((seg) => get(name + seg)).filter(Boolean); // VRM 0.x
+      }
+      if (chain.length) bones.fingers[side][finger] = chain;
+    }
+  }
   return finalizeBoneMap(bones);
+}
+
+/** Huesos de los dedos: hasta 3 por dedo, descendientes de cada mano. */
+function mapFingersByName(bones) {
+  const fingers = {};
+  for (const side of SIDES) {
+    const hand = bones[side + 'Hand'];
+    fingers[side] = {};
+    if (!hand) continue;
+    const found = Object.fromEntries(FINGERS.map((f) => [f, []]));
+    hand.traverse((o) => {
+      if (o === hand || !(o.isBone || o.type === 'Object3D')) return;
+      const name = (o.name || '').toLowerCase();
+      if (/end$|_end|tip|nub|null/.test(name)) return;
+      for (const finger of FINGERS) {
+        if (!FINGER_PATTERNS[finger].test(name)) continue;
+        if (finger !== 'thumb' && /metacarpal/.test(name)) break;
+        found[finger].push(o);
+        break;
+      }
+    });
+    for (const finger of FINGERS) {
+      const list = found[finger].sort((a, b) => depthOf(a) - depthOf(b));
+      const chain = [];
+      for (const b of list) {
+        if (chain.length === 3) break;
+        if (!chain.length || isAncestor(chain.at(-1), b)) chain.push(b);
+      }
+      if (chain.length) fingers[side][finger] = chain;
+    }
+  }
+  return fingers;
 }
 
 /** Corrige huecos/incoherencias del mapeo y calcula la cadena de la columna. */
@@ -142,6 +196,8 @@ export function finalizeBoneMap(bones) {
   }
   if (bones.head && bones.neck && !isAncestor(bones.neck, bones.head)) bones.neck = undefined;
 
+  bones.fingers ??= mapFingersByName(bones);
+
   // Columna: todos los huesos entre la cadera y el cuello (o la cabeza).
   bones.spine = [];
   const top = bones.neck ?? bones.head ?? bones.leftShoulder?.parent ?? bones.leftUpperArm?.parent;
@@ -155,12 +211,18 @@ export function finalizeBoneMap(bones) {
 
 /** Lista legible de huesos encontrados/faltantes, para la interfaz. */
 export function describeBoneMap(bones) {
-  return REPORT_BONES.map((key) => {
+  const report = REPORT_BONES.map((key) => {
     const value = key === 'spine' ? bones.spine : bones[key];
     const ok = Array.isArray(value) ? value.length > 0 : !!value;
     const name = Array.isArray(value) ? value.map((b) => b.name).join(', ') : value?.name;
     return { key, ok, name: name || '' };
   });
+  for (const side of SIDES) {
+    const fingers = bones.fingers?.[side] ?? {};
+    const count = Object.keys(fingers).length;
+    report.push({ key: side + 'Fingers', ok: count > 0, name: count ? `${count}/5 dedos` : '' });
+  }
+  return report;
 }
 
 /** Posición de reposo de la "punta" de un hueso (promedio de sus hijos). */

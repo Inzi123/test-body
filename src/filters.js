@@ -37,25 +37,34 @@ export class OneEuroFilter {
 export class LandmarkFilter {
   constructor(count) {
     this.filters = Array.from({ length: count * 3 }, () => new OneEuroFilter());
+    this.minCutoff = 1.5;
   }
 
   /** `smoothing` en [0, 1]: 0 = respuesta inmediata, 1 = muy suave. */
   setSmoothing(smoothing) {
-    const minCutoff = 6 * Math.pow(0.04, smoothing); // 6 Hz … 0.24 Hz
-    for (const f of this.filters) f.minCutoff = minCutoff;
+    this.minCutoff = 6 * Math.pow(0.04, smoothing); // 6 Hz … 0.24 Hz
   }
 
   reset() {
     for (const f of this.filters) f.reset();
   }
 
-  /** Filtra en el lugar un array de THREE.Vector3. */
-  apply(points, dt) {
+  /**
+   * Filtra en el lugar un array de THREE.Vector3. Con `confidence` (0..1 por
+   * punto), los puntos poco confiables (p. ej. tapados) se suavizan más.
+   */
+  apply(points, dt, confidence) {
     for (let i = 0; i < points.length; i++) {
       const p = points[i];
-      p.x = this.filters[i * 3].filter(p.x, dt);
-      p.y = this.filters[i * 3 + 1].filter(p.y, dt);
-      p.z = this.filters[i * 3 + 2].filter(p.z, dt);
+      const c = confidence ? confidence[i] : 1;
+      const cutoff = this.minCutoff * (c >= 0.5 ? 1 : 0.25 + c);
+      const fx = this.filters[i * 3];
+      const fy = this.filters[i * 3 + 1];
+      const fz = this.filters[i * 3 + 2];
+      fx.minCutoff = fy.minCutoff = fz.minCutoff = cutoff;
+      p.x = fx.filter(p.x, dt);
+      p.y = fy.filter(p.y, dt);
+      p.z = fz.filter(p.z, dt);
     }
   }
 }

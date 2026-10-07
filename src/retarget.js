@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { LM } from './landmarks.js';
-import { SIDES, boneTipPosition } from './humanoid.js';
+import { FINGERS, SIDES, boneTipPosition } from './humanoid.js';
 
 const AXIS_X = new THREE.Vector3(1, 0, 0);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
@@ -8,6 +8,17 @@ const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const IDENTITY = new THREE.Quaternion();
 const DEG = Math.PI / 180;
 const VISIBILITY_THRESHOLD = 0.5;
+// Piernas: un poco más estrictas (un escritorio que tapa las rodillas hace que el detector invente).
+const LEG_VISIBILITY_THRESHOLD = 0.35;
+
+// Puntos del detector de manos por dedo (base → punta).
+const FINGER_LANDMARKS = {
+  thumb: [1, 2, 3, 4],
+  index: [5, 6, 7, 8],
+  middle: [9, 10, 11, 12],
+  ring: [13, 14, 15, 16],
+  pinky: [17, 18, 19, 20],
+};
 
 // Pose relajada de los brazos (lado izquierdo; el derecho se refleja en X).
 const RELAXED_UPPER_ARM = new THREE.Vector3(0.12, -1, 0.02).normalize();
@@ -93,6 +104,7 @@ export class Retargeter {
     const list = [b.hips, ...b.spine, b.neck, b.head];
     for (const s of SIDES) {
       list.push(b[s + 'UpperArm'], b[s + 'LowerArm'], b[s + 'Hand'], b[s + 'UpperLeg'], b[s + 'LowerLeg'], b[s + 'Foot']);
+      for (const chain of Object.values(b.fingers?.[s] ?? {})) list.push(...chain);
     }
     return list.filter(Boolean);
   }
@@ -144,7 +156,8 @@ export class Retargeter {
       const hand = B[side + 'Hand'];
       const arm = this.rest[side + 'Arm'];
       if (hand && arm) {
-        const tip = boneTipPosition(hand) ?? pos(hand).addScaledVector(arm.d2, 0.1);
+        const middle = B.fingers?.[side]?.middle?.[0];
+        const tip = middle ? pos(middle) : boneTipPosition(hand) ?? pos(hand).addScaledVector(arm.d2, 0.1);
         const dir = sub(tip, pos(hand));
         if (dir.lengthSq() > 1e-10) this.rest[side + 'Hand'] = { inv: frameQuat(dir, arm.n2).invert() };
       }
@@ -155,6 +168,21 @@ export class Retargeter {
         const toes = B[side + 'Toes'] ? pos(B[side + 'Toes']) : boneTipPosition(foot);
         const dir = toes ? sub(toes, pos(foot)) : new THREE.Vector3(0, -0.4, 1);
         if (dir.lengthSq() > 1e-10) this.rest[side + 'Foot'] = { dir: dir.normalize() };
+      }
+    }
+
+    // Dedos: dirección de reposo de cada falange.
+    this.restFingers = {};
+    for (const side of SIDES) {
+      this.restFingers[side] = {};
+      for (const [finger, chain] of Object.entries(B.fingers?.[side] ?? {})) {
+        const dirs = [];
+        chain.forEach((bone, i) => {
+          const next = chain[i + 1] ? pos(chain[i + 1]) : boneTipPosition(bone);
+          const d = next ? sub(next, pos(bone)) : null;
+          dirs.push(d && d.lengthSq() > 1e-12 ? d.normalize() : dirs.at(-1)?.clone() ?? null);
+        });
+        if (dirs.every(Boolean)) this.restFingers[side][finger] = { chain, dirs };
       }
     }
 
@@ -200,11 +228,12 @@ export class Retargeter {
    * @param options { torso, head, arms, hands, legs }
    * @param dt segundos desde el último cuadro
    */
-  update(points, visibility, options, dt) {
+  update(points, visibility, options, dt, { inFrame = null, hands = null } = {}) {
     const B = this.bones;
     if (!B.hips) return;
     const P = points;
     const vis = (...ids) => (P ? Math.min(...ids.map((i) => visibility[i])) : 0);
+    const framed = (...ids) => !!P && (!inFrame || ids.every((i) => inFrame[i]));
     const k = 1 - Math.exp(-Math.max(dt, 0) * 8);
     const presence = this.presence;
     const fade = (key, on) => {
@@ -258,33 +287,41 @@ export class Retargeter {
     // --- Brazos y manos ----------------------------------------------------
     for (const side of SIDES) {
       const [iS, iE, iW] = LIMB_LANDMARKS[side + 'Arm'];
-      const pArm = fade(side + 'Arm', options.arms && visible(iS, iE, iW));
+      // Con el hombro a la vista se sigue el brazo aunque el codo o la mano estén
+      // tapados (detrás del cuerpo, por ejemplo): el detector estima su posición.
+      const pArm = fade(side + 'Arm', options.arms && visible(iS) && framed(iS, iE, iW));
       const qLower = this.limb(side, 'Arm', qChest, pArm, P);
+      const handPoints = options.hands ? hands?.[side] : null;
       const [hW, hP, hI] = HAND_LANDMARKS[side];
-      const pHand = fade(side + 'Hand', options.arms && options.hands && visible(hW, hP, hI));
+      const pHand = fade(side + 'Hand', options.arms && options.hands && (!!handPoints || visible(hW, hP, hI)));
       const hand = B[side + 'Hand'];
       const rest = this.rest[side + 'Hand'];
-      if (hand && rest && qLower) {
-        const qHand = qLower.clone();
-        if (P && pHand > 0.001) {
-          const dir = sub(mid(P[hI], P[hP]), P[hW]);
-          const normal = new THREE.Vector3().crossVectors(sub(P[hP], P[hW]), sub(P[hI], P[hW]));
-          if (dir.lengthSq() > 1e-10 && normal.lengthSq() > 1e-12) {
-            const target = clampRelative(qLower, frameQuat(dir, normal).multiply(rest.inv), 70 * DEG);
-            qHand.slerp(target, pHand);
-          }
+      if (!hand || !rest || !qLower) continue;
+      const qHand = qLower.clone();
+      if (pHand > 0.001 && (handPoints || P)) {
+        // Detector de manos (21 puntos) si está disponible; si no, los 3 puntos del cuerpo.
+        const [w, pinky, index, middle] = handPoints
+          ? [handPoints[0], handPoints[17], handPoints[5], handPoints[9]]
+          : [P[hW], P[hP], P[hI], mid(P[hI], P[hP])];
+        const dir = sub(middle, w);
+        const normal = new THREE.Vector3().crossVectors(sub(pinky, w), sub(index, w));
+        if (dir.lengthSq() > 1e-10 && normal.lengthSq() > 1e-12) {
+          const target = clampRelative(qLower, frameQuat(dir, normal).multiply(rest.inv), 80 * DEG);
+          qHand.slerp(target, pHand);
         }
-        this.setWorld(hand, qHand);
       }
+      this.setWorld(hand, qHand);
+      const pFingers = fade(side + 'Fingers', options.arms && options.hands && !!handPoints);
+      this.fingers(side, qHand, pFingers, handPoints);
     }
 
     // --- Piernas y pies ----------------------------------------------------
     for (const side of SIDES) {
       const [iH, iK, iA] = LIMB_LANDMARKS[side + 'Leg'];
-      const pLeg = fade(side + 'Leg', options.legs && visible(iH, iK, iA));
+      const pLeg = fade(side + 'Leg', options.legs && visible(iH) && framed(iH, iK, iA) && vis(iK, iA) > LEG_VISIBILITY_THRESHOLD);
       const qLower = this.limb(side, 'Leg', qHips, pLeg, P);
       const [fA, fT] = FOOT_LANDMARKS[side];
-      const pFoot = fade(side + 'Foot', options.legs && visible(iK, fA, fT));
+      const pFoot = fade(side + 'Foot', options.legs && framed(fA, fT) && vis(iK, fA, fT) > LEG_VISIBILITY_THRESHOLD);
       const foot = B[side + 'Foot'];
       const rest = this.rest[side + 'Foot'];
       if (foot && rest && qLower) {
@@ -299,6 +336,28 @@ export class Retargeter {
         }
         this.setWorld(foot, qFoot);
       }
+    }
+  }
+
+  /** Dedos: cada falange apunta como el segmento correspondiente del detector de manos. */
+  fingers(side, qHand, presence, handPoints) {
+    for (const [finger, { chain, dirs }] of Object.entries(this.restFingers[side] ?? {})) {
+      const ids = FINGER_LANDMARKS[finger];
+      let qPrev = qHand;
+      chain.forEach((bone, i) => {
+        // Sin datos: el dedo queda como en reposo respecto de la mano.
+        const q = qPrev.clone();
+        if (handPoints && presence > 0.001 && ids[i + 1] !== undefined) {
+          const target = sub(handPoints[ids[i + 1]], handPoints[ids[i]]);
+          if (target.lengthSq() > 1e-12) {
+            const from = dirs[i].clone().applyQuaternion(qPrev);
+            const bend = new THREE.Quaternion().setFromUnitVectors(from, target.normalize()).multiply(qPrev);
+            q.slerp(clampRelative(qPrev, bend, 110 * DEG), presence);
+          }
+        }
+        this.setWorld(bone, q);
+        qPrev = q;
+      });
     }
   }
 

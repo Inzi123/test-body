@@ -1,9 +1,17 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js';
-import { DrawingUtils, PoseLandmarker } from '@mediapipe/tasks-vision';
+import { DrawingUtils, HandLandmarker, PoseLandmarker } from '@mediapipe/tasks-vision';
 import { CameraTracker, detectPoseInImage } from './tracking.js';
-import { LANDMARK_COUNT, LM, createPointArray, toAvatarSpace } from './landmarks.js';
+import {
+  HAND_LANDMARK_COUNT,
+  LANDMARK_COUNT,
+  LM,
+  assignHands,
+  createPointArray,
+  handToAvatarSpace,
+  toAvatarSpace,
+} from './landmarks.js';
 import { LandmarkFilter } from './filters.js';
 import { Retargeter } from './retarget.js';
 import { createMannequin } from './mannequin.js';
@@ -116,9 +124,18 @@ let exporting = false; // durante la exportación el modelo queda en su pose de 
 const tracker = new CameraTracker($('video'));
 const points = createPointArray();
 const visibility = new Float32Array(LANDMARK_COUNT);
+const inFrame = new Uint8Array(LANDMARK_COUNT);
 const filter = new LandmarkFilter(LANDMARK_COUNT);
-filter.setSmoothing(Number($('smoothing-range').value));
+// Manos del detector de manos, ya asignadas al lado del avatar.
+const handPoints = { left: createPointArray(HAND_LANDMARK_COUNT), right: createPointArray(HAND_LANDMARK_COUNT) };
+const handFilters = { left: new LandmarkFilter(HAND_LANDMARK_COUNT), right: new LandmarkFilter(HAND_LANDMARK_COUNT) };
+const handSeen = { left: 0, right: 0 }; // momento de la última detección (lado del avatar)
+const personHandSeen = { left: 0, right: 0 }; // ídem, lado de la persona
+const setSmoothing = (value) => [filter, handFilters.left, handFilters.right].forEach((f) => f.setSmoothing(value));
+const resetFilters = () => [filter, handFilters.left, handFilters.right].forEach((f) => f.reset());
+setSmoothing(Number($('smoothing-range').value));
 let hasPose = false;
+let lastPoseImage = null; // puntos 2D del último cuadro (para depurar)
 let lastPoseTime = 0;
 let lastDetectionTime = 0;
 let rootOffsetX = 0;
@@ -340,9 +357,14 @@ async function startCamera() {
   button.disabled = true;
   await busy('Cargando detector de pose…', async (status) => {
     await tracker.setVariant($('variant-select').value);
+    if (options.hands) {
+      status('Cargando detector de manos…');
+      await tracker.setHands(true);
+    }
     status('Abriendo la cámara…');
     await tracker.start($('camera-select').value || undefined);
-    filter.reset();
+    resetFilters();
+    personHandSeen.left = personHandSeen.right = 0;
     $('preview').hidden = !$('preview-check').checked;
     button.textContent = 'Detener cámara';
     button.classList.add('active');
@@ -366,14 +388,14 @@ $('variant-select').addEventListener('change', async () => {
   if (!tracker.running) return;
   await busy('Cambiando el modelo de detección…', async () => {
     await tracker.setVariant($('variant-select').value);
-    filter.reset();
+    resetFilters();
     setStatus('Detector actualizado ✔');
   });
 });
 $('mirror-check').addEventListener('change', (e) => {
   mirror = e.target.checked;
   $('preview').classList.toggle('mirror', mirror);
-  filter.reset();
+  resetFilters();
 });
 $('preview').classList.toggle('mirror', mirror);
 $('calibrate-button').addEventListener('click', () => {
@@ -382,9 +404,17 @@ $('calibrate-button').addEventListener('click', () => {
 });
 
 for (const input of document.querySelectorAll('[data-option]')) {
-  input.addEventListener('change', () => (options[input.dataset.option] = input.checked));
+  input.addEventListener('change', () => {
+    options[input.dataset.option] = input.checked;
+    if (input.dataset.option === 'hands' && tracker.running) {
+      busy('Cargando detector de manos…', async () => {
+        await tracker.setHands(input.checked);
+        setStatus(input.checked ? 'Manos activadas ✔' : 'Manos desactivadas');
+      });
+    }
+  });
 }
-$('smoothing-range').addEventListener('input', (e) => filter.setSmoothing(Number(e.target.value)));
+$('smoothing-range').addEventListener('input', (e) => setSmoothing(Number(e.target.value)));
 $('preview-check').addEventListener('change', (e) => ($('preview').hidden = !e.target.checked || !tracker.running));
 $('landmarks-check').addEventListener('change', (e) => {
   overlay.hidden = !e.target.checked;
@@ -400,39 +430,78 @@ $('panel-toggle').addEventListener('click', () => {
 // ---------------------------------------------------------------------------
 // Bucle principal
 
-function drawOverlay(imageLandmarks) {
+function drawOverlay(imageLandmarks, handLandmarks = []) {
   const v = $('video');
   if (overlay.width !== v.videoWidth || overlay.height !== v.videoHeight) {
     overlay.width = v.videoWidth;
     overlay.height = v.videoHeight;
   }
   overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
-  if (!imageLandmarks || overlay.hidden) return;
+  if (overlay.hidden) return;
   const scale = overlay.width / 640;
-  drawing.drawConnectors(imageLandmarks, PoseLandmarker.POSE_CONNECTIONS, { color: '#4f8cff', lineWidth: 3 * scale });
-  drawing.drawLandmarks(imageLandmarks, {
-    color: '#ffffff',
-    fillColor: '#ff7a59',
-    lineWidth: 1,
-    radius: (d) => (d.from?.visibility ?? 1) > 0.5 ? 4 * scale : 2 * scale,
-  });
+  if (imageLandmarks) {
+    drawing.drawConnectors(imageLandmarks, PoseLandmarker.POSE_CONNECTIONS, { color: '#4f8cff', lineWidth: 3 * scale });
+    drawing.drawLandmarks(imageLandmarks, {
+      color: '#ffffff',
+      fillColor: '#ff7a59',
+      lineWidth: 1,
+      radius: (d) => ((d.from?.visibility ?? 1) > 0.5 ? 4 * scale : 2 * scale),
+    });
+  }
+  for (const hand of handLandmarks) {
+    drawing.drawConnectors(hand, HandLandmarker.HAND_CONNECTIONS, { color: '#46c37b', lineWidth: 2 * scale });
+    drawing.drawLandmarks(hand, { color: '#46c37b', fillColor: '#ffffff', lineWidth: 1, radius: 2 * scale });
+  }
 }
 
-function processDetection(result, now) {
-  const world = result.worldLandmarks?.[0];
-  const image = result.landmarks?.[0];
+/** Convierte y filtra las manos ya asignadas a cada lado de la persona. */
+function processHands(handResult, assigned, dt, now) {
+  const worlds = handResult?.worldLandmarks ?? [];
+  for (const personSide of ['left', 'right']) {
+    const h = assigned[personSide];
+    if (h === null || !worlds[h]) continue;
+    // En modo espejo la mano izquierda de la persona mueve la mano derecha del avatar.
+    const avatarSide = mirror ? (personSide === 'left' ? 'right' : 'left') : personSide;
+    handToAvatarSpace(worlds[h], mirror, handPoints[avatarSide]);
+    handFilters[avatarSide].apply(handPoints[avatarSide], dt);
+    handSeen[avatarSide] = now;
+    personHandSeen[personSide] = now;
+  }
+}
+
+/**
+ * Manos que el detector de manos venía viendo y perdió: si la muñeca cae sobre
+ * el torso, casi seguro pasó por detrás del cuerpo.
+ */
+function lostHands(handResult, assigned) {
+  const lost = new Set();
+  if (!handResult) return lost;
+  for (const side of ['left', 'right']) {
+    // Se exige haberla visto alguna vez: si la persona está lejos, el detector de
+    // manos nunca las encuentra y no hay que asumir nada.
+    if (assigned[side] === null && personHandSeen[side] > 0) lost.add(side);
+  }
+  return lost;
+}
+
+function processDetection({ pose, hands }, now) {
+  const world = pose.worldLandmarks?.[0];
+  const image = pose.landmarks?.[0];
   if (!world || !image) {
     hasPose = false;
-    drawOverlay(null);
+    drawOverlay(null, hands?.landmarks);
     return;
   }
-  const dt = lastDetectionTime ? (now - lastDetectionTime) / 1000 : 1 / 30;
+  const dt = Math.min(lastDetectionTime ? (now - lastDetectionTime) / 1000 : 1 / 30, 0.25);
   lastDetectionTime = now;
-  toAvatarSpace(world, image, mirror, points, visibility);
-  filter.apply(points, Math.min(dt, 0.25));
+  lastPoseImage = image;
+  const assigned = assignHands(hands?.landmarks, image);
+  toAvatarSpace(world, image, mirror, points, visibility, inFrame, lostHands(hands, assigned));
+  filter.apply(points, dt, visibility);
+  processHands(hands, assigned, dt, now);
   hasPose = true;
   lastPoseTime = now;
-  drawOverlay(image);
+  drawOverlay(image, hands?.landmarks);
 
   // Para "Desplazarse": posición horizontal del cuerpo en la imagen, en metros.
   const v = $('video');
@@ -470,7 +539,11 @@ function frame(timestamp) {
 
   if (current && !exporting) {
     const live = tracker.running && hasPose && now - lastPoseTime < 600;
-    current.retargeter.update(live ? points : null, visibility, options, dt);
+    const hands = {
+      left: live && now - handSeen.left < 300 ? handPoints.left : null,
+      right: live && now - handSeen.right < 300 ? handPoints.right : null,
+    };
+    current.retargeter.update(live ? points : null, visibility, options, dt, { inFrame, hands });
 
     const k = 1 - Math.exp(-dt * 6);
     let targetX = 0;
@@ -494,4 +567,4 @@ loadMannequin();
 requestAnimationFrame(frame);
 
 // Para depurar desde la consola.
-window.bodyMirror = { THREE, scene, camera, controls, tracker, get model() { return current; }, useLoaded, loadModelFromFiles };
+window.bodyMirror = { THREE, points, visibility, inFrame, scene, camera, controls, tracker, get model() { return current; }, get lastPoseImage() { return lastPoseImage; }, useLoaded, loadModelFromFiles };
