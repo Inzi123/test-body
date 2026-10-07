@@ -188,6 +188,7 @@ function setModel(prepared, name) {
   rootOffsetX = 0;
   rootOffsetY = 0;
   updateSkeletonHelper();
+  applyVertexColors();
   renderModelInfo();
 }
 
@@ -223,6 +224,21 @@ function renderModelInfo() {
     list.appendChild(li);
   }
   $('export-button').hidden = !current.autoRigged;
+}
+
+/** Activa/desactiva los colores por vértice en los materiales que los usan. */
+function applyVertexColors() {
+  if (!current) return;
+  const on = $('vertex-colors-check').checked;
+  current.container.traverse((o) => {
+    if (!o.isMesh) return;
+    for (const m of Array.isArray(o.material) ? o.material : [o.material]) {
+      m.userData.vertexColors ??= m.vertexColors;
+      if (!m.userData.vertexColors) continue;
+      m.vertexColors = on;
+      m.needsUpdate = true;
+    }
+  });
 }
 
 function updateSkeletonHelper() {
@@ -371,6 +387,7 @@ $('landmarks-check').addEventListener('change', (e) => {
   overlay.hidden = !e.target.checked;
 });
 $('skeleton-check').addEventListener('change', updateSkeletonHelper);
+$('vertex-colors-check').addEventListener('change', applyVertexColors);
 $('reset-view-button').addEventListener('click', resetView);
 $('panel-toggle').addEventListener('click', () => {
   $('panel').classList.toggle('collapsed');

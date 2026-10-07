@@ -89,6 +89,10 @@ brazos separados del cuerpo.
    Generator traen muchísimas y son lo que más pesa). La app lee archivos comprimidos.
 5. Cargá el `.glb` en la app. En *Huesos detectados* deberías ver todos con ✓.
 
+**Si el modelo se ve rojo:** son los *colores de vértice* (Human Generator guarda máscaras
+pintadas en la malla). Desactivá **Colores de vértice** en la sección *Vista* de la app, o al
+exportar elegí *Datos → Malla → Use Vertex Color: None*.
+
 **Texturas:** glTF sólo exporta las imágenes conectadas directamente al *Principled BSDF*
 (Base Color, Normal, Roughness…). Los materiales procedurales o con grupos de nodos, como la
 piel de Human Generator, hay que **hornearlos (bake)** a imágenes antes de exportar; si no, el
