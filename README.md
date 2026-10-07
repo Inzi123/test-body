@@ -84,7 +84,10 @@ brazos separados del cuerpo.
 3. En las opciones: formato **glTF Binary (.glb)** (así las texturas van dentro del archivo),
    *Incluir → Objetos seleccionados*, y en *Datos → Armature* dejá activado **Skinning**.
    Si el modelo tiene modificadores, activá *Aplicar modificadores*.
-4. Cargá el `.glb` en la app. En *Huesos detectados* deberías ver todos con ✓.
+4. Para que pese menos: activá **Compresión** (Draco) en *Datos → Compresión* y, si no
+   necesitás las expresiones de la cara, desactivá *Shape Keys* (los modelos de Human
+   Generator traen muchísimas y son lo que más pesa). La app lee archivos comprimidos.
+5. Cargá el `.glb` en la app. En *Huesos detectados* deberías ver todos con ✓.
 
 **Texturas:** glTF sólo exporta las imágenes conectadas directamente al *Principled BSDF*
 (Base Color, Normal, Roughness…). Los materiales procedurales o con grupos de nodos, como la

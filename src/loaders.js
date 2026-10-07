@@ -4,6 +4,8 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { TGALoader } from 'three/examples/jsm/loaders/TGALoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { VRMLoaderPlugin } from '@pixiv/three-vrm';
 
 export const MODEL_EXTENSIONS = ['vrm', 'glb', 'gltf', 'fbx', 'obj'];
@@ -11,6 +13,13 @@ const IMAGE_RE = /\.(png|jpe?g|webp|bmp|gif|tga|tiff?|dds|ktx2?)$/i;
 // Textura de 1×1 blanca para las texturas que faltan (rutas absolutas del creador, etc.).
 const BLANK_IMAGE =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4////fwAJ+wP9KobjigAAAABJRU5ErkJggg==';
+
+// Decodificador para modelos comprimidos con Draco (opción "Compresión" del exportador de Blender).
+let dracoLoader = null;
+function getDracoLoader() {
+  dracoLoader ??= new DRACOLoader().setDecoderPath(new URL('draco/', document.baseURI).href);
+  return dracoLoader;
+}
 
 const extensionOf = (name) => name.split('.').pop().toLowerCase();
 const basename = (url) => decodeURIComponent(url.split('?')[0].split(/[\\/]/).pop()).toLowerCase();
@@ -72,6 +81,8 @@ async function loadWithManager(url, format, manager, mtlUrl) {
     return { object, vrm: null };
   }
   const loader = new GLTFLoader(manager);
+  loader.setDRACOLoader(getDracoLoader());
+  loader.setMeshoptDecoder(MeshoptDecoder);
   loader.register((parser) => new VRMLoaderPlugin(parser, { autoUpdateHumanBones: false }));
   const gltf = await loader.loadAsync(url);
   const vrm = gltf.userData.vrm ?? null;

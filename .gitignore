@@ -3,3 +3,4 @@ dist/
 public/mediapipe/
 .DS_Store
 *.log
+public/draco/
